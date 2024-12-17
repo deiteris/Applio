@@ -1,6 +1,7 @@
-import math
+from typing import Optional
 import torch
 from rvc.lib.algorithm.commons import convert_pad_shape
+import torch.nn.functional as F
 
 
 class MultiHeadAttention(torch.nn.Module):
@@ -50,7 +51,7 @@ class MultiHeadAttention(torch.nn.Module):
         self.conv_v = torch.nn.Conv1d(channels, channels, 1)
         self.conv_o = torch.nn.Conv1d(channels, out_channels, 1)
 
-        self.drop = torch.nn.Dropout(p_dropout)
+        self.p_dropout = p_dropout
 
         # Relative positional encodings
         if window_size:
@@ -76,113 +77,25 @@ class MultiHeadAttention(torch.nn.Module):
                 self.conv_k.weight.copy_(self.conv_q.weight)
                 self.conv_k.bias.copy_(self.conv_q.bias)
 
-    def forward(self, x, c, attn_mask=None):
-        # Compute query, key, value projections
-        q, k, v = self.conv_q(x), self.conv_k(c), self.conv_v(c)
+    def forward(self, x: torch.Tensor, c: torch.Tensor, attn_mask: Optional[torch.Tensor] = None):
+        q = self.conv_q(x)  # (B, channels, T_x)
+        k = self.conv_k(c)  # (B, channels, T_c)
+        v = self.conv_v(c)  # (B, channels, T_c)
 
-        # Compute attention
-        x, self.attn = self.attention(q, k, v, mask=attn_mask)
+        b, d, t_q = q.shape
+        # t_k = k.shape[-1]
+
+        # Project to Q, K, V
+        query = q.view(b, self.n_heads, self.k_channels, t_q).transpose(2, 3)
+        key = k.view(b, self.n_heads, self.k_channels, t_q).transpose(2, 3)
+        value = v.view(b, self.n_heads, self.k_channels, t_q).transpose(2, 3)
+
+        # Scaled Dot-Product Attention
+        output = F.scaled_dot_product_attention(query, key, value, attn_mask=attn_mask, dropout_p=self.p_dropout)
 
         # Final output projection
-        return self.conv_o(x)
-
-    def attention(self, query, key, value, mask=None):
-        # Reshape and compute scaled dot-product attention
-        b, d, t_s, t_t = (*key.size(), query.size(2))
-        query = query.view(b, self.n_heads, self.k_channels, t_t).transpose(2, 3)
-        key = key.view(b, self.n_heads, self.k_channels, t_s).transpose(2, 3)
-        value = value.view(b, self.n_heads, self.k_channels, t_s).transpose(2, 3)
-
-        scores = torch.matmul(query / math.sqrt(self.k_channels), key.transpose(-2, -1))
-
-        if self.window_size:
-            assert t_s == t_t, "Relative attention only supports self-attention."
-            scores += self._compute_relative_scores(query, t_s)
-
-        if self.proximal_bias:
-            assert t_s == t_t, "Proximal bias only supports self-attention."
-            scores += self._attention_bias_proximal(t_s).to(scores.device, scores.dtype)
-
-        if mask is not None:
-            scores = scores.masked_fill(mask == 0, -1e4)
-            if self.block_length:
-                block_mask = (
-                    torch.ones_like(scores)
-                    .triu(-self.block_length)
-                    .tril(self.block_length)
-                )
-                scores = scores.masked_fill(block_mask == 0, -1e4)
-
-        # Apply softmax and dropout
-        p_attn = self.drop(torch.nn.functional.softmax(scores, dim=-1))
-
-        # Compute attention output
-        output = torch.matmul(p_attn, value)
-
-        if self.window_size:
-            output += self._apply_relative_values(p_attn, t_s)
-
-        return output.transpose(2, 3).contiguous().view(b, d, t_t), p_attn
-
-    def _compute_relative_scores(self, query, length):
-        rel_emb = self._get_relative_embeddings(self.emb_rel_k, length)
-        rel_logits = self._matmul_with_relative_keys(
-            query / math.sqrt(self.k_channels), rel_emb
-        )
-        return self._relative_position_to_absolute_position(rel_logits)
-
-    def _apply_relative_values(self, p_attn, length):
-        rel_weights = self._absolute_position_to_relative_position(p_attn)
-        rel_emb = self._get_relative_embeddings(self.emb_rel_v, length)
-        return self._matmul_with_relative_values(rel_weights, rel_emb)
-
-    # Helper methods
-    def _matmul_with_relative_values(self, x, y):
-        return torch.matmul(x, y.unsqueeze(0))
-
-    def _matmul_with_relative_keys(self, x, y):
-        return torch.matmul(x, y.unsqueeze(0).transpose(-2, -1))
-
-    def _get_relative_embeddings(self, embeddings, length):
-        pad_length = max(length - (self.window_size + 1), 0)
-        start = max((self.window_size + 1) - length, 0)
-        end = start + 2 * length - 1
-
-        if pad_length > 0:
-            embeddings = torch.nn.functional.pad(
-                embeddings,
-                convert_pad_shape([[0, 0], [pad_length, pad_length], [0, 0]]),
-            )
-        return embeddings[:, start:end]
-
-    def _relative_position_to_absolute_position(self, x):
-        batch, heads, length, _ = x.size()
-        x = torch.nn.functional.pad(
-            x, convert_pad_shape([[0, 0], [0, 0], [0, 0], [0, 1]])
-        )
-        x_flat = x.view(batch, heads, length * 2 * length)
-        x_flat = torch.nn.functional.pad(
-            x_flat, convert_pad_shape([[0, 0], [0, 0], [0, length - 1]])
-        )
-        return x_flat.view(batch, heads, length + 1, 2 * length - 1)[
-            :, :, :length, length - 1 :
-        ]
-
-    def _absolute_position_to_relative_position(self, x):
-        batch, heads, length, _ = x.size()
-        x = torch.nn.functional.pad(
-            x, convert_pad_shape([[0, 0], [0, 0], [0, 0], [0, length - 1]])
-        )
-        x_flat = x.view(batch, heads, length**2 + length * (length - 1))
-        x_flat = torch.nn.functional.pad(
-            x_flat, convert_pad_shape([[0, 0], [0, 0], [length, 0]])
-        )
-        return x_flat.view(batch, heads, length, 2 * length)[:, :, :, 1:]
-
-    def _attention_bias_proximal(self, length):
-        r = torch.arange(length, dtype=torch.float32)
-        diff = r.unsqueeze(0) - r.unsqueeze(1)
-        return -torch.log1p(torch.abs(diff)).unsqueeze(0).unsqueeze(0)
+        output = output.transpose(2, 3).contiguous().view(b, d, t_q)
+        return self.conv_o(output)
 
 
 class FFN(torch.nn.Module):

@@ -108,9 +108,9 @@ class WaveNet(torch.nn.Module):
             if i < self.n_layers - 1:
                 res_acts = res_skip_acts[:, : self.hidden_channels, :]
                 x = (x + res_acts) * x_mask
-                output = output + res_skip_acts[:, self.hidden_channels :, :]
+                output += res_skip_acts[:, self.hidden_channels :, :]
             else:
-                output = output + res_skip_acts
+                output += res_skip_acts
 
         return output * x_mask
 

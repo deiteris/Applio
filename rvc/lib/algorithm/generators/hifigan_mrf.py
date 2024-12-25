@@ -27,9 +27,11 @@ class MRFLayer(torch.nn.Module):
         )
 
     def forward(self, x):
+        # Create a new tensor
         y = torch.nn.functional.leaky_relu(x, LRELU_SLOPE)
         y = self.conv1(y)
-        y = torch.nn.functional.leaky_relu(y, LRELU_SLOPE)
+        # Do in-place activation on the same tensor
+        y = torch.nn.functional.leaky_relu_(y, LRELU_SLOPE)
         y = self.conv2(y)
         return x + y
 
@@ -280,7 +282,7 @@ class HiFiGANMRFGenerator(torch.nn.Module):
             x = x + self.cond(g)
 
         for up, mrf, noise_conv in zip(self.upsamples, self.mrfs, self.noise_convs):
-            x = torch.nn.functional.leaky_relu(x, LRELU_SLOPE)
+            x = torch.nn.functional.leaky_relu_(x, LRELU_SLOPE)
             x = up(x)
             x_source = noise_conv(har_source)
             x = x + x_source
@@ -288,9 +290,9 @@ class HiFiGANMRFGenerator(torch.nn.Module):
             for layer in mrf:
                 xs += layer(x)
             x = xs / self.num_kernels
-        x = torch.nn.functional.leaky_relu(x)
+        x = torch.nn.functional.leaky_relu_(x)
         x = self.conv_post(x)
-        x = torch.tanh(x)
+        x = torch.tanh_(x)
         return x
 
     def remove_weight_norm(self):

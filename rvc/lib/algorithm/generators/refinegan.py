@@ -60,13 +60,15 @@ class ResBlock(torch.nn.Module):
 
     def forward(self, x):
         for idx, (c1, c2) in enumerate(zip(self.convs1, self.convs2)):
+            # Create a new tensor
             xt = torch.nn.functional.leaky_relu(x, self.leaky_relu_slope)
             xt = c1(xt)
-            xt = torch.nn.functional.leaky_relu(xt, self.leaky_relu_slope)
+            # Do in-place activation on the same tensor
+            xt = torch.nn.functional.leaky_relu_(xt, self.leaky_relu_slope)
             xt = c2(xt)
 
             if idx != 0 or self.in_channels == self.out_channels:
-                x = xt + x
+                x += xt
             else:
                 x = xt
 
@@ -383,7 +385,7 @@ class RefineGANGenerator(torch.nn.Module):
         # making a downscaled version to match upscaler stages
         downs = []
         for i, block in enumerate(self.downsample_blocks):
-            x = torch.nn.functional.leaky_relu(x, self.leaky_relu_slope, inplace=True)
+            x = torch.nn.functional.leaky_relu_(x, self.leaky_relu_slope)
             downs.append(x)
             x = block(x)
 
@@ -392,22 +394,21 @@ class RefineGANGenerator(torch.nn.Module):
 
         if g is not None:
             # adding expanded speaker embedding
-            x = x + self.cond(g)
+            x += self.cond(g)
         x = torch.cat([x, mel], dim=1)
-        i = 1
         for up, res, down in zip(
             self.upsample_blocks,
             self.upsample_conv_blocks,
             reversed(downs),
         ):
-            x = torch.nn.functional.leaky_relu(x, self.leaky_relu_slope, inplace=True)
+            x = torch.nn.functional.leaky_relu_(x, self.leaky_relu_slope)
             x = up(x)
             x = torch.cat([x, down], dim=1)
             x = res(x)
 
-        x = torch.nn.functional.leaky_relu(x, self.leaky_relu_slope, inplace=True)
+        x = torch.nn.functional.leaky_relu_(x, self.leaky_relu_slope)
         x = self.conv_post(x)
-        x = torch.tanh(x)
+        x = torch.tanh_(x)
 
         return x
 

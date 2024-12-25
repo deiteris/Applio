@@ -69,10 +69,10 @@ class HiFiGANGenerator(torch.nn.Module):
     def forward(self, x: torch.Tensor, g: Optional[torch.Tensor] = None):
         x = self.conv_pre(x)
         if g is not None:
-            x = x + self.cond(g)
+            x += self.cond(g)
 
         for i in range(self.num_upsamples):
-            x = torch.nn.functional.leaky_relu(x, LRELU_SLOPE)
+            x = torch.nn.functional.leaky_relu_(x, LRELU_SLOPE)
             x = self.ups[i](x)
             xs = None
             for j in range(self.num_kernels):
@@ -82,9 +82,9 @@ class HiFiGANGenerator(torch.nn.Module):
                     xs += self.resblocks[i * self.num_kernels + j](x)
             x = xs / self.num_kernels
 
-        x = torch.nn.functional.leaky_relu(x)
+        x = torch.nn.functional.leaky_relu_(x)
         x = self.conv_post(x)
-        x = torch.tanh(x)
+        x = torch.tanh_(x)
 
         return x
 

@@ -166,6 +166,7 @@ class HiFiGANNSFGenerator(torch.nn.Module):
         self.upp = math.prod(upsample_rates)
         self.lrelu_slope = LRELU_SLOPE
 
+    @torch.compiler.disable()
     def forward(self, x, f0, g: Optional[torch.Tensor] = None):
         har_source, _, _ = self.m_source(f0, self.upp)
         har_source = har_source.transpose(1, 2)
@@ -176,7 +177,7 @@ class HiFiGANNSFGenerator(torch.nn.Module):
             x += self.cond(g)
 
         for i, (ups, noise_convs) in enumerate(zip(self.ups, self.noise_convs)):
-            x = torch.nn.functional.leaky_relu(x, self.lrelu_slope)
+            x = torch.nn.functional.leaky_relu_(x, self.lrelu_slope)
             x = ups(x)
             x += noise_convs(har_source)
 
@@ -186,8 +187,8 @@ class HiFiGANNSFGenerator(torch.nn.Module):
             )
             x = xs / self.num_kernels
 
-        x = torch.nn.functional.leaky_relu(x)
-        x = torch.tanh(self.conv_post(x))
+        x = torch.nn.functional.leaky_relu_(x)
+        x = torch.tanh_(self.conv_post(x))
 
         return x
 

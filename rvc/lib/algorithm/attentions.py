@@ -138,10 +138,10 @@ class FFN(torch.nn.Module):
         x = self.conv_2(self.padding_fn(x * x_mask))
         return x * x_mask
 
-    def _apply_activation(self, x):
+    def _apply_activation(self, x: torch.Tensor):
         if self.activation == "gelu":
-            return x * torch.sigmoid(1.702 * x)
-        return torch.relu(x)
+            return x.mul_(torch.sigmoid_(1.702 * x))
+        return torch.relu_(x)
 
     def _causal_padding(self, x):
         pad_l, pad_r = self.conv_1.kernel_size[0] - 1, 0

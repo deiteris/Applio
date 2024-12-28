@@ -95,7 +95,7 @@ class AdaIN(torch.nn.Module):
         super().__init__()
 
         self.weight = torch.nn.Parameter(torch.ones(channels))
-        self.activation = torch.nn.LeakyReLU(leaky_relu_slope)
+        self.activation = torch.nn.LeakyReLU(leaky_relu_slope, inplace=True)
 
     def forward(self, x: torch.Tensor):
         gaussian = torch.randn_like(x) * self.weight[None, :, None]

@@ -68,7 +68,7 @@ class ResBlock(torch.nn.Module):
             xt = c2(xt)
 
             if idx != 0 or self.in_channels == self.out_channels:
-                x += xt
+                x = xt + x
             else:
                 x = xt
 

@@ -917,6 +917,10 @@ def train_and_evaluate(
             )
             done = True
 
+        # Clean-up old best epochs
+        for m in model_del:
+            os.remove(m)
+
         if model_add:
             ckpt = (
                 net_g.module.state_dict()
@@ -924,24 +928,22 @@ def train_and_evaluate(
                 else net_g.state_dict()
             )
             for m in model_add:
-                if not os.path.exists(m):
-                    extract_model(
-                        ckpt=ckpt,
-                        sr=sample_rate,
-                        pitch_guidance=pitch_guidance
-                        == True,  # converting 1/0 to True/False,
-                        name=model_name,
-                        model_dir=m,
-                        epoch=epoch,
-                        step=global_step,
-                        version=version,
-                        hps=hps,
-                        overtrain_info=overtrain_info,
-                        vocoder=vocoder,
-                    )
-        # Clean-up old best epochs
-        for m in model_del:
-            os.remove(m)
+                if os.path.exists(m):
+                    print(f'{m} already exists. Overwriting.')
+                extract_model(
+                    ckpt=ckpt,
+                    sr=sample_rate,
+                    pitch_guidance=pitch_guidance
+                    == True,  # converting 1/0 to True/False,
+                    name=model_name,
+                    model_path=m,
+                    epoch=epoch,
+                    step=global_step,
+                    version=version,
+                    hps=hps,
+                    overtrain_info=overtrain_info,
+                    vocoder=vocoder,
+                )
 
         # Print training progress
         lowest_value_rounded = float(lowest_value["value"])

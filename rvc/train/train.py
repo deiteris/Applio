@@ -512,7 +512,7 @@ def run(
             break
 
     for epoch in range(epoch_str, total_epoch + 1):
-        train_and_evaluate(
+        done = train_and_evaluate(
             rank,
             epoch,
             config,
@@ -529,10 +529,13 @@ def run(
             reference,
             fn_mel_loss,
         )
+        if done:
+            break
 
         scheduler_g.step()
         scheduler_d.step()
 
+    dist.destroy_process_group()
 
 def train_and_evaluate(
     rank,
@@ -824,7 +827,6 @@ def train_and_evaluate(
     # Save checkpoint
     model_add = []
     model_del = []
-    done = False
 
     if rank == 0:
         overtrain_info = ""
@@ -880,7 +882,7 @@ def train_and_evaluate(
                 print(
                     f"Overtraining detected at epoch {epoch} with smoothed loss_g {smoothed_value_gen:.3f} and loss_d {smoothed_value_disc:.3f}"
                 )
-                done = True
+                return True
             else:
                 print(
                     f"New best epoch {epoch} with smoothed loss_g {smoothed_value_gen:.3f} and loss_d {smoothed_value_disc:.3f}"
@@ -991,11 +993,9 @@ def train_and_evaluate(
                     experiment_dir, f"{model_name}_{epoch}e_{global_step}s.pth"
                 )
             )
-            done = True
+            return True
 
-        if done:
-            os._exit(2333333)
-
+        return False
         # with torch.no_grad():
         #     torch.cuda.empty_cache()
 

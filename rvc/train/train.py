@@ -327,7 +327,7 @@ def run(
         writer_eval = None
 
     dist.init_process_group(
-        backend="gloo",
+        backend="nccl",
         init_method="env://",
         world_size=n_gpus if device.type == "cuda" else 1,
         rank=rank if device.type == "cuda" else 0,
